@@ -1,6 +1,8 @@
 package com.vizion.app
 
 import android.os.Bundle
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -61,6 +63,24 @@ private fun VizionApp() {
     var playingUrl by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("Recherche des films, séries et animes.") }
+    var countryCode by remember { mutableStateOf("GB") }
+    var watchProviders by remember { mutableStateOf<List<WatchProvider>>(emptyList()) }
+    var watchLink by remember { mutableStateOf<String?>(null) }
+    var watchLoading by remember { mutableStateOf(false) }
+
+    LaunchedEffect(selected?.id, selected?.kind, apiKey, countryCode) {
+        val item = selected
+        if (item == null || apiKey.isBlank() || countryCode.length != 2) {
+            watchProviders = emptyList()
+            watchLink = null
+            return@LaunchedEffect
+        }
+        watchLoading = true
+        val availability = loadWatchProviders(apiKey, item, countryCode)
+        watchProviders = availability.providers
+        watchLink = availability.link
+        watchLoading = false
+    }
 
     MaterialTheme(colorScheme = darkColorScheme(
         background = Ink, surface = Panel, primary = Accent,
@@ -92,8 +112,42 @@ private fun VizionApp() {
                             Text(item.overview.ifBlank { "Aucun résumé disponible." }, color = Muted, fontSize = 12.sp, maxLines = 7, modifier = Modifier.padding(top = 8.dp))
                         }
                     }
-                    Text("Lire une vidéo", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 24.dp, bottom = 10.dp))
-                    Text("Colle une URL vidéo à laquelle tu as accès (MP4, M3U8 ou DASH).", color = Muted, fontSize = 12.sp)
+                    Text("OÙ REGARDER LÉGALEMENT", fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 22.dp, bottom = 8.dp))
+                    Text("Disponibilité selon ton pays (catalogues officiels).", color = Muted, fontSize = 12.sp)
+                    UrlInput(countryCode, { countryCode = it.uppercase().filter { c -> c.isLetter() }.take(2) }, "Code pays : GB, FR, BJ…", Modifier.padding(top = 8.dp))
+                    when {
+                        watchLoading -> Text("Vérification des plateformes…", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 10.dp))
+                        watchProviders.isEmpty() -> Text("Aucune plateforme annoncée pour ce titre dans cette région.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 10.dp))
+                        else -> {
+                            watchProviders.take(8).forEach { provider ->
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 5.dp).background(Panel, RoundedCornerShape(10.dp)).padding(9.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    AsyncImage(model = provider.logo, contentDescription = provider.name, modifier = Modifier.size(38.dp))
+                                    Spacer(Modifier.width(10.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(provider.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                        Text(provider.category, color = Muted, fontSize = 10.sp)
+                                    }
+                                }
+                            }
+                            if (watchLink != null) {
+                                val context = androidx.compose.ui.platform.LocalContext.current
+                                Text(
+                                    "VOIR LES OPTIONS SUR JUSTWATCH ↗",
+                                    color = Accent,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.clickable {
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(watchLink)))
+                                    }.padding(vertical = 8.dp)
+                                )
+                            }
+                        }
+                    }
+                    Text("Lire une vidéo personnelle ou autorisée", fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
+                    Text("Tu peux aussi coller une URL MP4, M3U8 ou DASH à laquelle tu as accès.", color = Muted, fontSize = 12.sp)
                     UrlInput(streamUrl, { streamUrl = it }, "https://…", Modifier.padding(top = 12.dp))
                     Button(
                         onClick = { if (streamUrl.startsWith("https://") || streamUrl.startsWith("http://")) playingUrl = streamUrl else message = "Entre une URL vidéo valide." },
@@ -171,6 +225,37 @@ private fun VideoPlayer(url: String, onClose: () -> Unit) {
         AndroidView(factory = { ctx -> PlayerView(ctx).apply { this.player = player } }, modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f))
         Text("VIZION PLAYER", color = Accent, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
     }
+}
+
+data class WatchProvider(val id: Int, val name: String, val logo: String?, val category: String)
+data class WatchAvailability(val providers: List<WatchProvider>, val link: String?)
+
+private suspend fun loadWatchProviders(apiKey: String, item: MediaHit, region: String): WatchAvailability = withContext(Dispatchers.IO) {
+    val mediaPath = if (item.kind == "movie") "movie" else "tv"
+    val url = "https://api.themoviedb.org/3/$mediaPath/${item.id}/watch/providers?api_key=${java.net.URLEncoder.encode(apiKey, "UTF-8")}"
+    runCatching {
+        http.newCall(Request.Builder().url(url).build()).execute().use { response ->
+            if (!response.isSuccessful) return@use WatchAvailability(emptyList(), null)
+            val root = JSONObject(response.body?.string().orEmpty())
+            val country = root.optJSONObject("results")?.optJSONObject(region)
+                ?: return@use WatchAvailability(emptyList(), null)
+            val link = country.optString("link").takeIf { it.startsWith("https://") }
+            val categories = listOf("flatrate" to "Abonnement", "free" to "Gratuit", "ads" to "Avec publicité", "rent" to "Location", "buy" to "Achat")
+            val found = mutableListOf<WatchProvider>()
+            categories.forEach { (key, label) ->
+                val list = country.optJSONArray(key) ?: return@forEach
+                for (i in 0 until list.length()) {
+                    val p = list.optJSONObject(i) ?: continue
+                    val id = p.optInt("provider_id")
+                    val name = p.optString("provider_name").takeIf { it.isNotBlank() } ?: continue
+                    val logoPath = p.optString("logo_path").takeIf { it.startsWith("/") }
+                    val logo = logoPath?.let { "https://image.tmdb.org/t/p/w92$it" }
+                    if (found.none { it.id == id && it.category == label }) found.add(WatchProvider(id, name, logo, label))
+                }
+            }
+            WatchAvailability(found, link)
+        }
+    }.getOrDefault(WatchAvailability(emptyList(), null))
 }
 
 private suspend fun searchTmdb(apiKey: String, query: String): List<MediaHit> = withContext(Dispatchers.IO) {
