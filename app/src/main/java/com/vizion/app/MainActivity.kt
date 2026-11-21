@@ -148,6 +148,7 @@ private fun VizionApp() {
                     }
                     Text("Lire une vidéo personnelle ou autorisée", fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
                     Text("Tu peux aussi coller une URL MP4, M3U8 ou DASH à laquelle tu as accès.", color = Muted, fontSize = 12.sp)
+                    Text("Les disponibilités sont fournies par TMDB. VIZION n'est affiliée à aucune plateforme de streaming.", color = Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 10.dp, bottom = 8.dp))
                     UrlInput(streamUrl, { streamUrl = it }, "https://…", Modifier.padding(top = 12.dp))
                     Button(
                         onClick = { if (streamUrl.startsWith("https://") || streamUrl.startsWith("http://")) playingUrl = streamUrl else message = "Entre une URL vidéo valide." },
