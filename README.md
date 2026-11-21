@@ -5,6 +5,7 @@ VIZION is a phone/tablet Android app prototype built with Kotlin, Jetpack Compos
 ## Current prototype
 - Search movie and TV metadata through TMDB (bring your own API key).
 - Open a title detail screen.
+- Check legal streaming availability by region through TMDB Watch Providers, with a JustWatch link for the selected title.
 - Play a user-provided, authorized HTTP(S) MP4, HLS (.m3u8) or DASH stream using Media3.
 
 ## Important status
@@ -22,4 +23,6 @@ gradle assembleDebug
 APK: `app/build/outputs/apk/debug/app-debug.apk`
 
 ## TMDB
-Create your own API key at https://www.themoviedb.org/settings/api and enter it in the app. TMDB is used for catalogue metadata only.
+Create your own API key at https://www.themoviedb.org/settings/api and enter it in the app. TMDB supplies catalogue metadata and regional watch-provider availability; it does not supply the video streams themselves. Change the two-letter region code in a title page (for example GB, FR or BJ) to check another catalogue.
+
+This product uses the TMDB API but is not endorsed or certified by TMDB. Streaming availability is provided for discovery; playback must happen through the relevant official service unless you provide a stream you are authorized to use.
